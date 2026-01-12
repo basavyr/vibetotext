@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vibetotext"
+version = "0.1.0"
+description = "Voice-to-text with automatic code context injection"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "openai-whisper",
+    "sounddevice",
+    "numpy",
+    "pyperclip",
+    "pynput",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[project.scripts]
+vibetotext = "vibetotext.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
