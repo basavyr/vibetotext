@@ -101,20 +101,41 @@ class AudioRecorder:
 class HotkeyListener:
     """Listens for multiple hotkeys to toggle recording."""
 
-    def __init__(self, hotkeys: dict = None):
+    def __init__(self, hotkeys: dict = None, max_recording_seconds: int = 60):
         """
         Args:
             hotkeys: Dict mapping hotkey strings to mode names.
                      e.g. {"ctrl+shift": "transcribe", "cmd+shift": "greppy"}
+            max_recording_seconds: Auto-stop recording after this many seconds (default: 60)
         """
         if hotkeys is None:
             hotkeys = {"ctrl+shift": "transcribe"}
         self.hotkeys = hotkeys
+        self.max_recording_seconds = max_recording_seconds
         self.on_start = None  # Called with mode name
         self.on_stop = None   # Called with mode name
         self._pressed = set()
         self._recording = False
         self._active_mode = None
+        self._timeout_timer = None
+
+    def _cancel_timeout(self):
+        """Cancel any pending timeout."""
+        if self._timeout_timer:
+            self._timeout_timer.cancel()
+            self._timeout_timer = None
+
+    def _timeout_stop(self):
+        """Called when recording times out."""
+        if self._recording:
+            print(f"\n[TIMEOUT] Recording exceeded {self.max_recording_seconds}s, auto-stopping...")
+            mode = self._active_mode
+            self._recording = False
+            self._active_mode = None
+            self._active_parts = None
+            self._pressed.clear()
+            if self.on_stop:
+                self.on_stop(mode)
 
     def start(self, on_start, on_stop):
         """Start listening for hotkeys."""
@@ -146,6 +167,16 @@ class HotkeyListener:
                         self._recording = True
                         self._active_mode = mode
                         self._active_parts = parts
+
+                        # Start timeout timer
+                        self._cancel_timeout()
+                        self._timeout_timer = threading.Timer(
+                            self.max_recording_seconds,
+                            self._timeout_stop
+                        )
+                        self._timeout_timer.daemon = True
+                        self._timeout_timer.start()
+
                         if self.on_start:
                             self.on_start(mode)
                         break
@@ -158,6 +189,7 @@ class HotkeyListener:
 
             # If any hotkey part is released while recording, stop
             if self._recording and key_name in self._active_parts:
+                self._cancel_timeout()
                 mode = self._active_mode
                 self._recording = False
                 self._active_mode = None

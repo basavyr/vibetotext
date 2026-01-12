@@ -7,20 +7,35 @@ import whisper
 
 # Technical vocabulary prompt to bias Whisper toward programming terms
 # This helps Whisper recognize domain-specific words correctly
-TECH_PROMPT = """Programming terms: Firebase, Firestore, MongoDB, PostgreSQL, MySQL, Redis,
-API, REST, GraphQL, JSON, YAML, HTML, CSS, JavaScript, TypeScript, Python, React, Vue, Angular,
-Node.js, npm, yarn, webpack, Vite, Docker, Kubernetes, AWS, GCP, Azure, GitHub, GitLab,
-CI/CD, DevOps, microservices, serverless, lambda, async, await, callback, promise,
-useState, useEffect, useContext, useRef, useMemo, useCallback, Redux, Zustand,
-NextJS, Vercel, Netlify, Supabase, Prisma, tRPC, Zod, TypeORM, Sequelize,
-component, props, state, hook, middleware, endpoint, route, controller, service,
-repository, schema, migration, query, mutation, subscription, resolver,
-authentication, authorization, OAuth, JWT, token, session, cookie, CORS,
-deployment, production, staging, development, environment, config, env,
-variable, function, class, interface, type, enum, const, let, var,
-import, export, module, package, dependency, devDependency,
-Claude, Anthropic, OpenAI, GPT, LLM, embedding, vector, RAG, prompt, completion,
-Whisper, transcription, speech-to-text, voice recognition, NLP, ML, AI."""
+TECH_PROMPT = """This is a software engineer dictating code and technical documentation.
+They frequently discuss: APIs, databases, frontend frameworks, backend services,
+cloud infrastructure, and AI/ML systems. Use programming terminology and proper
+capitalization for technical terms.
+
+Common terms: Firebase, Firestore, MongoDB, PostgreSQL, MySQL, Redis, SQLite,
+API, REST, GraphQL, gRPC, WebSocket, JSON, YAML, XML, HTML, CSS, SCSS,
+JavaScript, TypeScript, Python, Rust, Go, Java, C++, Swift, Kotlin,
+React, Vue, Angular, Svelte, Next.js, Nuxt, Remix, Astro,
+Node.js, Deno, Bun, npm, yarn, pnpm, webpack, Vite, esbuild, Rollup,
+Docker, Kubernetes, K8s, Helm, Terraform, Ansible, Jenkins, CircleCI,
+AWS, S3, EC2, Lambda, DynamoDB, CloudFront, Route53, ECS, EKS,
+GCP, BigQuery, Cloud Run, Cloud Functions, Pub/Sub,
+Azure, Vercel, Netlify, Railway, Render, Fly.io, Cloudflare,
+Git, GitHub, GitLab, Bitbucket, PR, pull request, merge, rebase, cherry-pick,
+CI/CD, DevOps, SRE, microservices, monorepo, serverless, edge functions,
+useState, useEffect, useContext, useRef, useMemo, useCallback, useReducer,
+Redux, Zustand, Jotai, Recoil, MobX, XState,
+Prisma, Drizzle, TypeORM, Sequelize, Knex, SQLAlchemy,
+tRPC, Zod, Yup, Joi, Express, Fastify, Hono, FastAPI, Flask, Django,
+Tailwind, styled-components, Emotion, CSS Modules, Sass,
+Jest, Vitest, Cypress, Playwright, Testing Library,
+ESLint, Prettier, Biome, TypeScript, TSConfig,
+OAuth, JWT, session, cookie, CORS, CSRF, XSS, SQL injection,
+Claude, Anthropic, OpenAI, GPT, Gemini, Llama, Mistral,
+LLM, embedding, vector database, Pinecone, Weaviate, ChromaDB, Qdrant,
+RAG, retrieval, chunking, tokenization, fine-tuning, RLHF, prompt engineering,
+Whisper, transcription, TTS, speech-to-text, ASR, NLP, NLU,
+regex, cron, UUID, Base64, SHA, MD5, RSA, AES, TLS, SSL, HTTPS."""
 
 
 class Transcriber:
