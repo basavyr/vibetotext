@@ -40,6 +40,12 @@ class AudioRecorder:
                 # Scale RMS: 0.001 (quiet) → 0.1, 0.005 (normal) → 0.5, 0.01 (loud) → 1.0
                 base_level = min(1.0, rms * 100)
 
+                # Threshold: if base level is very low, treat as silence
+                # Increased threshold to handle background noise
+                if base_level < 0.1:
+                    self.on_level([0.0] * 25)
+                    return
+
                 # Create 25 bars with variation based on audio samples
                 num_bars = 25
                 levels = []
@@ -51,12 +57,17 @@ class AudioRecorder:
                         sample = abs(audio[i * step])
                         # Combine base level with sample variation
                         level = min(1.0, (base_level * 0.7) + (sample * 50))
+                        # Floor small values to zero
+                        if level < 0.05:
+                            level = 0.0
                         levels.append(level)
                 else:
                     # Fallback: use base level with random variation
                     for i in range(num_bars):
                         variation = np.random.uniform(0.7, 1.3)
                         level = min(1.0, base_level * variation)
+                        if level < 0.05:
+                            level = 0.0
                         levels.append(level)
 
                 self.on_level(levels)
