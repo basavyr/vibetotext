@@ -22,12 +22,30 @@ class AudioRecorder:
         if self.recording:
             self._audio_data.append(indata.copy())
 
-            # Calculate audio level (RMS)
+            # Calculate frequency spectrum for waveform visualization
             if self.on_level:
-                rms = np.sqrt(np.mean(indata**2))
-                # Normalize to 0-1 range - boost significantly for visibility
-                level = min(1.0, rms * 50)  # Increased from 10 to 50
-                self.on_level(level)
+                # Flatten to 1D
+                audio = indata.flatten()
+
+                # Apply FFT to get frequency spectrum
+                fft = np.abs(np.fft.rfft(audio))
+
+                # Split into 25 frequency bands
+                num_bars = 25
+                band_size = len(fft) // num_bars
+
+                if band_size > 0:
+                    levels = []
+                    for i in range(num_bars):
+                        start = i * band_size
+                        end = start + band_size
+                        band_magnitude = np.mean(fft[start:end])
+                        # Normalize and boost for visibility
+                        level = min(1.0, band_magnitude * 0.5)
+                        levels.append(level)
+                    self.on_level(levels)
+                else:
+                    self.on_level([0.0] * num_bars)
 
     def start(self):
         """Start recording."""
