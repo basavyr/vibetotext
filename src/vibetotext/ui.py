@@ -155,12 +155,15 @@ class AppDelegate(NSObject):
 
                     # Position when recording starts
                     if self.recording and not was_recording:
-                        cx = data.get("cursor_x", 500)
-                        screen_bottom = data.get("screen_bottom", 900)
+                        screen_x = data.get("screen_x", 0)
+                        screen_y = data.get("screen_y", 0)
+                        screen_w = data.get("screen_w", 1920)
                         width = 280
                         height = 40
-                        new_x = cx - width // 2
-                        new_y = screen_bottom - height - 80
+                        # Center horizontally on the screen
+                        new_x = screen_x + (screen_w - width) // 2
+                        # Position 40px from bottom of screen
+                        new_y = screen_y + 40
 
                         # Position and bring to front
                         self.panel.setFrameOrigin_((new_x, new_y))
@@ -191,7 +194,7 @@ if __name__ == "__main__":
 
 
 def _get_cursor_and_screen():
-    """Get cursor position and screen bottom using Quartz."""
+    """Get cursor position and screen bounds using Quartz."""
     try:
         from Quartz import CGEventCreate, CGEventGetLocation
         from AppKit import NSScreen
@@ -201,21 +204,28 @@ def _get_cursor_and_screen():
         pos = CGEventGetLocation(event)
         cursor_x, cursor_y = int(pos.x), int(pos.y)
 
-        # Find which screen the cursor is on and get its bottom
+        # Find which screen the cursor is on
         for screen in NSScreen.screens():
             frame = screen.frame()
             if (frame.origin.x <= cursor_x <= frame.origin.x + frame.size.width and
                 frame.origin.y <= cursor_y <= frame.origin.y + frame.size.height):
-                # Screen bottom in flipped coordinates (for NSPanel positioning)
-                # NSPanel uses bottom-left origin, so we need the actual Y value
-                screen_bottom = int(frame.origin.y + frame.size.height)
-                return cursor_x, cursor_y, screen_bottom
+                return {
+                    "screen_x": int(frame.origin.x),
+                    "screen_y": int(frame.origin.y),
+                    "screen_w": int(frame.size.width),
+                    "screen_h": int(frame.size.height),
+                }
 
         # Fallback to main screen
         main = NSScreen.mainScreen().frame()
-        return cursor_x, cursor_y, int(main.size.height)
+        return {
+            "screen_x": int(main.origin.x),
+            "screen_y": int(main.origin.y),
+            "screen_w": int(main.size.width),
+            "screen_h": int(main.size.height),
+        }
     except Exception:
-        return 500, 500, 1000
+        return {"screen_x": 0, "screen_y": 0, "screen_w": 1920, "screen_h": 1080}
 
 
 def _write_ipc(data):
@@ -254,15 +264,13 @@ def _ensure_ui_process():
 
 
 def show_recording():
-    """Show recording indicator near cursor."""
+    """Show recording indicator at bottom center of screen."""
     _ensure_ui_process()
-    cx, cy, screen_bottom = _get_cursor_and_screen()
+    screen_info = _get_cursor_and_screen()
     _write_ipc({
         "recording": True,
         "level": 0.0,
-        "cursor_x": cx,
-        "cursor_y": cy,
-        "screen_bottom": screen_bottom,
+        **screen_info,
     })
 
 
