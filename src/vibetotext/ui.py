@@ -51,13 +51,13 @@ class WaveformView(NSView):
     def drawRect_(self, rect):
         # Draw rounded background
         NSColor.colorWithCalibratedRed_green_blue_alpha_(0.1, 0.1, 0.1, 0.95).set()
-        path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(rect, 8, 8)
+        path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(rect, 4, 4)
         path.fill()
 
         width = rect.size.width
         height = rect.size.height
-        bar_width = 4
-        bar_spacing = 4
+        bar_width = 2
+        bar_spacing = 2
         num_bars = 25
         total_width = num_bars * bar_width + (num_bars - 1) * bar_spacing
         start_x = (width - total_width) / 2
@@ -69,12 +69,12 @@ class WaveformView(NSView):
             for i in range(num_bars):
                 level = self.levels[i] if i < len(self.levels) else 0.0
                 x = start_x + i * (bar_width + bar_spacing)
-                # Bar height based on level, minimum 4px
-                bar_height = max(4, level * height * 0.75)
+                # Bar height based on level, minimum 2px
+                bar_height = max(2, level * height * 0.75)
                 bar_height = min(bar_height, height * 0.8)
                 y = center_y - bar_height / 2
                 bar_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-                    NSMakeRect(x, y, bar_width, bar_height), 2, 2
+                    NSMakeRect(x, y, bar_width, bar_height), 1, 1
                 )
                 bar_path.fill()
         else:
@@ -83,7 +83,7 @@ class WaveformView(NSView):
             for i in range(num_bars):
                 x = start_x + i * (bar_width + bar_spacing)
                 bar_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-                    NSMakeRect(x, center_y - 2, bar_width, 4), 2, 2
+                    NSMakeRect(x, center_y - 1, bar_width, 2), 1, 1
                 )
                 bar_path.fill()
 
@@ -101,8 +101,8 @@ class AppDelegate(NSObject):
 
     def applicationDidFinishLaunching_(self, notification):
         # Create floating panel
-        width = 280
-        height = 40
+        width = 140
+        height = 20
 
         self.panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
             NSMakeRect(100, 100, width, height),
@@ -164,12 +164,12 @@ class AppDelegate(NSObject):
                     screen_x = data.get("screen_x", 0)
                     screen_y = data.get("screen_y", 0)
                     screen_w = data.get("screen_w", 1920)
-                    width = 280
-                    height = 40
+                    width = 140
+                    height = 20
                     # Center horizontally on the screen
                     new_x = screen_x + (screen_w - width) // 2
-                    # Position 40px from bottom of screen
-                    new_y = screen_y + 40
+                    # Position 20px from bottom of screen
+                    new_y = screen_y + 20
 
                     # Position and bring to front
                     self.panel.setFrameOrigin_((new_x, new_y))
@@ -184,10 +184,10 @@ class AppDelegate(NSObject):
                             if new_levels[i] > self.levels[i]:
                                 self.levels[i] = new_levels[i]  # Rise instantly
                             else:
-                                self.levels[i] = self.levels[i] * 0.8 + new_levels[i] * 0.2  # Even slower decay
+                                self.levels[i] = self.levels[i] * 0.86 + new_levels[i] * 0.14  # Even slower decay
                 elif self.recording:
                     # No new data but still recording - decay towards zero
-                    self.levels = [l * 0.85 for l in self.levels]
+                    self.levels = [l * 0.9 for l in self.levels]
                 else:
                     # Not recording - reset to zero
                     self.levels = [0.0] * 25
