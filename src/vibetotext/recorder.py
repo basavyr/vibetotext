@@ -15,11 +15,19 @@ class AudioRecorder:
         self.recording = False
         self.audio_queue = queue.Queue()
         self._audio_data = []
+        self.on_level = None  # Callback for audio level updates
 
     def _callback(self, indata, frames, time, status):
         """Callback for sounddevice stream."""
         if self.recording:
             self._audio_data.append(indata.copy())
+
+            # Calculate audio level (RMS)
+            if self.on_level:
+                rms = np.sqrt(np.mean(indata**2))
+                # Normalize to 0-1 range (assuming typical speech levels)
+                level = min(1.0, rms * 10)
+                self.on_level(level)
 
     def start(self):
         """Start recording."""

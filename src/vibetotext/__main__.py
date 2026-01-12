@@ -2,6 +2,8 @@
 
 import argparse
 import sys
+import threading
+import time
 
 # Use absolute imports for PyInstaller compatibility
 from vibetotext.recorder import AudioRecorder, HotkeyListener
@@ -36,13 +38,31 @@ def main():
         default=5,
         help="Max number of code snippets to include (default: 5)",
     )
+    parser.add_argument(
+        "--no-ui",
+        action="store_true",
+        help="Disable visual recording indicator",
+    )
 
     args = parser.parse_args()
+
+    # Initialize UI if enabled
+    ui = None
+    if not args.no_ui:
+        try:
+            from vibetotext import ui as ui_module
+            ui = ui_module
+        except Exception as e:
+            print(f"UI disabled: {e}")
 
     # Initialize components
     recorder = AudioRecorder()
     transcriber = Transcriber(model_name=args.model)
     listener = HotkeyListener(hotkey=args.hotkey)
+
+    # Set up audio level callback for UI
+    if ui:
+        recorder.on_level = ui.update_waveform
 
     print(f"vibetotext ready. Hold [{args.hotkey}] to record.")
     print("Release to transcribe and paste at cursor.")
@@ -53,10 +73,14 @@ def main():
 
     def on_start():
         print("Recording...", end="", flush=True)
+        if ui:
+            ui.show_recording()
         recorder.start()
 
     def on_stop():
         audio = recorder.stop()
+        if ui:
+            ui.hide_recording()
         print(" done.")
 
         if len(audio) == 0:
@@ -93,8 +117,12 @@ def main():
     # Start listening
     hotkey_listener = listener.start(on_start, on_stop)
 
+    # Run main loop (process UI events if enabled)
     try:
-        hotkey_listener.join()
+        while True:
+            if ui:
+                ui.process_ui_events()
+            time.sleep(0.05)
     except KeyboardInterrupt:
         print("\nExiting.")
         sys.exit(0)
