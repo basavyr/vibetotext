@@ -39,51 +39,60 @@ class WaveformView(NSView):
     def initWithFrame_(self, frame):
         self = objc.super(WaveformView, self).initWithFrame_(frame)
         if self:
-            self.levels = [0.0] * 30
+            self.levels = [0.0] * 25  # 25 bars
             self.recording = False
         return self
 
     def setLevels_recording_(self, levels, recording):
-        self.levels = levels
+        self.levels = list(levels)  # Make a copy
         self.recording = recording
         self.setNeedsDisplay_(True)
 
     def drawRect_(self, rect):
-        # Draw background
+        # Draw rounded background
         NSColor.colorWithCalibratedRed_green_blue_alpha_(0.1, 0.1, 0.1, 0.95).set()
-        NSBezierPath.fillRect_(rect)
+        path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(rect, 8, 8)
+        path.fill()
 
         width = rect.size.width
         height = rect.size.height
-        bar_width = 6
-        bar_spacing = 3
-        num_bars = len(self.levels)
-        total_width = num_bars * (bar_width + bar_spacing)
-        start_x = (width - total_width) / 2 + 10
+        bar_width = 4
+        bar_spacing = 4
+        num_bars = 25
+        total_width = num_bars * bar_width + (num_bars - 1) * bar_spacing
+        start_x = (width - total_width) / 2
         center_y = height / 2
 
         if self.recording:
             # Pink color for recording
             NSColor.colorWithCalibratedRed_green_blue_alpha_(1.0, 0.4, 0.6, 1.0).set()
-            for i, level in enumerate(self.levels):
+            for i in range(num_bars):
+                level = self.levels[i] if i < len(self.levels) else 0.0
                 x = start_x + i * (bar_width + bar_spacing)
-                bar_height = max(6, level * height * 0.8)
-                bar_height = min(bar_height, height * 0.85)
+                # Bar height based on level, minimum 4px
+                bar_height = max(4, level * height * 0.75)
+                bar_height = min(bar_height, height * 0.8)
                 y = center_y - bar_height / 2
-                NSBezierPath.fillRect_(NSMakeRect(x, y, bar_width, bar_height))
+                bar_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                    NSMakeRect(x, y, bar_width, bar_height), 2, 2
+                )
+                bar_path.fill()
         else:
-            # Gray color for idle
+            # Gray color for idle - flat line
             NSColor.colorWithCalibratedRed_green_blue_alpha_(0.35, 0.35, 0.35, 1.0).set()
             for i in range(num_bars):
                 x = start_x + i * (bar_width + bar_spacing)
-                NSBezierPath.fillRect_(NSMakeRect(x, center_y - 2, bar_width, 4))
+                bar_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                    NSMakeRect(x, center_y - 2, bar_width, 4), 2, 2
+                )
+                bar_path.fill()
 
 
 class AppDelegate(NSObject):
     def init(self):
         self = objc.super(AppDelegate, self).init()
         if self:
-            self.levels = [0.0] * 30
+            self.levels = [0.0] * 25  # Match WaveformView
             self.recording = False
             self.last_mtime = 0
             self.panel = None
