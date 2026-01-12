@@ -5,7 +5,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 
 # Path for IPC
 _ipc_file = os.path.join(tempfile.gettempdir(), "vibetotext_ui_ipc.json")
@@ -17,7 +16,6 @@ UI_SCRIPT = '''
 import json
 import os
 import sys
-import time
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "1"
 import pygame
@@ -33,27 +31,21 @@ def main():
     screen = pygame.display.set_mode((width, height), pygame.NOFRAME)
     pygame.display.set_caption("")
 
-    # Position at bottom center
+    # Get window handle for positioning
     try:
         from pygame._sdl2 import Window
         window = Window.from_display_module()
-        info = pygame.display.Info()
-        x = (info.current_w - width) // 2
-        y = info.current_h - height - 100
-        window.position = (x, y)
     except:
-        pass
+        window = None
 
     clock = pygame.time.Clock()
     bg_color = (26, 26, 26)
-    bar_color = (255, 102, 153)
+    bar_color = (255, 102, 153)  # Pink when recording
+    idle_color = (80, 80, 80)    # Gray when idle
 
     levels = [0.0] * 30
-    visible = False
+    recording = False
     last_mtime = 0
-
-    # Start hidden
-    pygame.display.iconify()
 
     running = True
     while running:
@@ -75,51 +67,52 @@ def main():
                         running = False
                         break
 
-                    if data.get("show") and not visible:
-                        visible = True
-                        pygame.display.set_mode((width, height), pygame.NOFRAME)
-                        try:
-                            from pygame._sdl2 import Window
-                            window = Window.from_display_module()
-                            info = pygame.display.Info()
-                            x = (info.current_w - width) // 2
-                            y = info.current_h - height - 100
-                            window.position = (x, y)
-                        except:
-                            pass
+                    # Update recording state
+                    recording = data.get("recording", False)
 
-                    if data.get("hide") and visible:
-                        visible = False
-                        pygame.display.iconify()
+                    # Position window near cursor when recording starts
+                    if window and "cursor_x" in data and "cursor_y" in data:
+                        cx = data["cursor_x"]
+                        cy = data["cursor_y"]
+                        # Position below cursor, centered horizontally
+                        new_x = cx - width // 2
+                        new_y = cy + 60  # 60px below cursor
+                        window.position = (new_x, new_y)
 
-                    if "level" in data and visible:
+                    # Update levels if recording
+                    if "level" in data and recording:
                         levels = levels[1:] + [data["level"]]
         except:
             pass
 
-        if visible:
-            screen.fill(bg_color)
+        # Always draw - waveform when recording, flat line when idle
+        screen.fill(bg_color)
 
-            bar_width = 6
-            bar_spacing = 3
-            num_bars = len(levels)
-            total_width = num_bars * (bar_width + bar_spacing)
-            start_x = (width - total_width) // 2 + 10
-            center_y = height // 2
+        bar_width = 6
+        bar_spacing = 3
+        num_bars = len(levels)
+        total_width = num_bars * (bar_width + bar_spacing)
+        start_x = (width - total_width) // 2 + 10
+        center_y = height // 2
 
+        if recording:
+            # Animated waveform
             for i, level in enumerate(levels):
                 x = start_x + i * (bar_width + bar_spacing)
                 bar_height = max(4, min(int(level * height * 0.7), int(height * 0.7)))
                 y1 = center_y - bar_height // 2
                 pygame.draw.rect(screen, bar_color, (x, y1, bar_width, bar_height))
+        else:
+            # Flat idle line
+            for i in range(num_bars):
+                x = start_x + i * (bar_width + bar_spacing)
+                pygame.draw.rect(screen, idle_color, (x, center_y - 2, bar_width, 4))
 
-            pygame.display.flip()
-
+        pygame.display.flip()
         clock.tick(33)
 
     pygame.quit()
 
-    # Clean up IPC file
     try:
         os.remove(IPC_FILE)
     except:
@@ -128,6 +121,17 @@ def main():
 if __name__ == "__main__":
     main()
 '''
+
+
+def _get_cursor_position():
+    """Get current cursor position using Quartz."""
+    try:
+        from Quartz import CGEventCreate, CGEventGetLocation
+        event = CGEventCreate(None)
+        pos = CGEventGetLocation(event)
+        return int(pos.x), int(pos.y)
+    except Exception:
+        return 500, 500  # Fallback
 
 
 def _write_ipc(data):
@@ -164,19 +168,25 @@ def _ensure_ui_process():
 
 
 def show_recording():
-    """Show recording indicator."""
+    """Show recording indicator near cursor."""
     _ensure_ui_process()
-    _write_ipc({"show": True, "hide": False, "level": 0.0})
+    cx, cy = _get_cursor_position()
+    _write_ipc({
+        "recording": True,
+        "level": 0.0,
+        "cursor_x": cx,
+        "cursor_y": cy,
+    })
 
 
 def hide_recording():
-    """Hide recording indicator."""
-    _write_ipc({"show": False, "hide": True})
+    """Switch to idle state (flat line, don't hide)."""
+    _write_ipc({"recording": False})
 
 
 def update_waveform(level):
     """Update waveform with audio level (0.0 to 1.0)."""
-    _write_ipc({"show": True, "hide": False, "level": level})
+    _write_ipc({"recording": True, "level": level})
 
 
 def process_ui_events():
