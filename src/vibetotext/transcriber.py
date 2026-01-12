@@ -5,6 +5,24 @@ from typing import Optional
 import whisper
 
 
+# Technical vocabulary prompt to bias Whisper toward programming terms
+# This helps Whisper recognize domain-specific words correctly
+TECH_PROMPT = """Programming terms: Firebase, Firestore, MongoDB, PostgreSQL, MySQL, Redis,
+API, REST, GraphQL, JSON, YAML, HTML, CSS, JavaScript, TypeScript, Python, React, Vue, Angular,
+Node.js, npm, yarn, webpack, Vite, Docker, Kubernetes, AWS, GCP, Azure, GitHub, GitLab,
+CI/CD, DevOps, microservices, serverless, lambda, async, await, callback, promise,
+useState, useEffect, useContext, useRef, useMemo, useCallback, Redux, Zustand,
+NextJS, Vercel, Netlify, Supabase, Prisma, tRPC, Zod, TypeORM, Sequelize,
+component, props, state, hook, middleware, endpoint, route, controller, service,
+repository, schema, migration, query, mutation, subscription, resolver,
+authentication, authorization, OAuth, JWT, token, session, cookie, CORS,
+deployment, production, staging, development, environment, config, env,
+variable, function, class, interface, type, enum, const, let, var,
+import, export, module, package, dependency, devDependency,
+Claude, Anthropic, OpenAI, GPT, LLM, embedding, vector, RAG, prompt, completion,
+Whisper, transcription, speech-to-text, voice recognition, NLP, ML, AI."""
+
+
 class Transcriber:
     """Transcribes audio using local Whisper model."""
 
@@ -45,11 +63,12 @@ class Transcriber:
         # Whisper expects float32 audio normalized to [-1, 1]
         audio = audio.astype(np.float32)
 
-        # Transcribe
+        # Transcribe with tech vocabulary prompt to improve recognition
         result = self.model.transcribe(
             audio,
             language="en",
             fp16=False,  # Use fp32 for CPU compatibility
+            initial_prompt=TECH_PROMPT,  # Bias toward programming terms
         )
 
         return result["text"].strip()
