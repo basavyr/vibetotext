@@ -22,12 +22,13 @@ function createWindow() {
     width: 450,
     height: 600,
     x: Math.min(cursorPoint.x, display.bounds.x + display.bounds.width - 450),
-    y: display.bounds.y + 25, // Below menu bar
-    frame: false,
+    y: display.bounds.y + 50,
+    frame: true,  // Show window frame with title bar
+    titleBarStyle: 'hiddenInset',  // macOS style with traffic lights
     resizable: true,
     show: false,
-    skipTaskbar: true,
-    alwaysOnTop: true,
+    skipTaskbar: false,  // Show in taskbar/dock
+    alwaysOnTop: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -36,10 +37,10 @@ function createWindow() {
 
   mainWindow.loadFile('index.html');
 
-  // Hide when clicking outside
-  mainWindow.on('blur', () => {
-    mainWindow.hide();
-  });
+  // Don't hide on blur - let user close manually
+  // mainWindow.on('blur', () => {
+  //   mainWindow.hide();
+  // });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -144,11 +145,10 @@ if (!gotTheLock) {
 app.whenReady().then(() => {
   console.log('App is ready');
 
-  // Hide dock icon on macOS (menu bar app style)
-  if (process.platform === 'darwin') {
-    console.log('Hiding dock icon');
-    app.dock.hide();
-  }
+  // Keep dock icon visible for now (easier to find)
+  // if (process.platform === 'darwin') {
+  //   app.dock.hide();
+  // }
 
   console.log('Creating tray...');
   createTray();
@@ -158,9 +158,13 @@ app.whenReady().then(() => {
   setupFileWatcher();
   console.log('File watcher set up');
 
-  // Create window but don't show it
+  // Create and show window on startup
   console.log('Creating window...');
   createWindow();
+  if (mainWindow) {
+    mainWindow.show();
+    console.log('Window shown');
+  }
   console.log('Window created, app running');
 });
 

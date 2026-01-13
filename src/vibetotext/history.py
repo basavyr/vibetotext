@@ -1,6 +1,7 @@
 """Transcription history storage and analytics."""
 
 import json
+import threading
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -65,7 +66,7 @@ class TranscriptionHistory:
 
     def add_entry(self, text: str, mode: str, timestamp: Optional[datetime] = None):
         """
-        Add a transcription entry to history.
+        Add a transcription entry to history (non-blocking).
 
         Args:
             text: Transcribed text
@@ -75,17 +76,23 @@ class TranscriptionHistory:
         if timestamp is None:
             timestamp = datetime.now()
 
-        data = self._load()
-        entry = {
-            "text": text,
-            "mode": mode,
-            "timestamp": timestamp.isoformat(),
-            "word_count": len(text.split()),
-        }
-        data["entries"].append(entry)
-        print(f"[HISTORY] Saving entry to {self.path}, total entries: {len(data['entries'])}")
-        self._save(data)
-        print(f"[HISTORY] Save complete")
+        # Save in background thread to not block pasting
+        def save_async():
+            try:
+                data = self._load()
+                entry = {
+                    "text": text,
+                    "mode": mode,
+                    "timestamp": timestamp.isoformat(),
+                    "word_count": len(text.split()),
+                }
+                data["entries"].append(entry)
+                self._save(data)
+            except Exception as e:
+                print(f"[HISTORY] Error saving: {e}")
+
+        thread = threading.Thread(target=save_async, daemon=True)
+        thread.start()
 
     def get_entries(self, limit: Optional[int] = None) -> List[dict]:
         """

@@ -22,6 +22,9 @@ const STOPWORDS = new Set([
   'know', 'think', 'want', 'get', 'got', 'make', 'way', 'see', 'go',
 ]);
 
+// Track last data hash to avoid unnecessary re-renders
+let lastDataHash = '';
+
 function loadHistory() {
   try {
     if (fs.existsSync(HISTORY_PATH)) {
@@ -74,9 +77,24 @@ function getCommonWords(entries) {
     .slice(0, 10);
 }
 
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 function render() {
   const history = loadHistory();
   const entries = history.entries || [];
+
+  // Create a hash to check if data changed
+  const dataHash = JSON.stringify(entries);
+  if (dataHash === lastDataHash) {
+    // Only update timestamps if data hasn't changed
+    updateTimestamps();
+    return;
+  }
+  lastDataHash = dataHash;
 
   // Sort by timestamp, newest first
   entries.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
@@ -85,7 +103,7 @@ function render() {
   const totalSessions = entries.length;
   const totalWords = entries.reduce((sum, e) => sum + (e.word_count || e.text.split(/\s+/).length), 0);
 
-  // Update stats
+  // Update stats (only text content, no DOM rebuild)
   document.getElementById('total-sessions').textContent = totalSessions.toLocaleString();
   document.getElementById('total-words').textContent = totalWords.toLocaleString();
 
@@ -113,13 +131,13 @@ function render() {
     .join('');
 
   // Render entries
-  entriesContainer.innerHTML = entries.slice(0, 100).map(entry => {
+  entriesContainer.innerHTML = entries.slice(0, 100).map((entry, index) => {
     const wordCount = entry.word_count || entry.text.split(/\s+/).length;
     const mode = entry.mode || 'transcribe';
     const timeStr = formatTime(entry.timestamp);
 
     return `
-      <div class="entry">
+      <div class="entry" data-timestamp="${entry.timestamp}">
         <div class="entry-header">
           <span class="entry-time">${timeStr}</span>
           <span class="entry-mode ${mode}">${mode}</span>
@@ -131,10 +149,17 @@ function render() {
   }).join('');
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+function updateTimestamps() {
+  // Only update the time strings without rebuilding DOM
+  document.querySelectorAll('.entry').forEach(entry => {
+    const timestamp = entry.dataset.timestamp;
+    if (timestamp) {
+      const timeEl = entry.querySelector('.entry-time');
+      if (timeEl) {
+        timeEl.textContent = formatTime(timestamp);
+      }
+    }
+  });
 }
 
 // Initial render
@@ -145,5 +170,5 @@ ipcRenderer.on('history-updated', () => {
   render();
 });
 
-// Also poll for changes (backup in case file watcher misses something)
+// Poll less frequently and only update timestamps most of the time
 setInterval(render, 5000);

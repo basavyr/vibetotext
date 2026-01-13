@@ -1,8 +1,11 @@
 """Main CLI entry point."""
 
 import argparse
+import os
+import subprocess
 import sys
 import time
+from pathlib import Path
 
 from vibetotext.recorder import AudioRecorder, HotkeyListener
 from vibetotext.transcriber import Transcriber
@@ -10,6 +13,30 @@ from vibetotext.context import search_context, format_context
 from vibetotext.greppy import search_files, format_files_for_context
 from vibetotext.llm import cleanup_text, generate_implementation_plan
 from vibetotext.output import paste_at_cursor
+from vibetotext.history import TranscriptionHistory
+
+
+def open_history_app():
+    """Open the history Electron app."""
+    # Find the history-app directory relative to this file
+    src_dir = Path(__file__).parent.parent.parent
+    history_app_dir = src_dir / "history-app"
+
+    if not history_app_dir.exists():
+        print(f"[HISTORY] App not found at {history_app_dir}")
+        return
+
+    # Check if already running (single instance will handle focus)
+    try:
+        subprocess.Popen(
+            ["npm", "start"],
+            cwd=str(history_app_dir),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print("[HISTORY] Opened history window")
+    except Exception as e:
+        print(f"[HISTORY] Failed to open: {e}")
 
 
 def main():
@@ -41,6 +68,11 @@ def main():
         "--plan-hotkey",
         default="cmd+alt",
         help="Hotkey for implementation plan mode (default: cmd+alt)",
+    )
+    parser.add_argument(
+        "--history-hotkey",
+        default="ctrl+alt",
+        help="Hotkey to toggle history window (default: ctrl+alt)",
     )
     parser.add_argument(
         "--codebase",
@@ -103,6 +135,7 @@ def main():
     # Initialize components
     recorder = AudioRecorder()
     transcriber = Transcriber(model_name=args.model)
+    history = TranscriptionHistory()
 
     # Set up hotkeys for all modes
     hotkeys = {
@@ -110,6 +143,7 @@ def main():
         args.greppy_hotkey: "greppy",
         args.cleanup_hotkey: "cleanup",
         args.plan_hotkey: "plan",
+        args.history_hotkey: "history",
     }
     listener = HotkeyListener(hotkeys=hotkeys)
 
@@ -125,12 +159,18 @@ def main():
     print(f"  [{args.greppy_hotkey}] = Greppy search + attach files")
     print(f"  [{args.cleanup_hotkey}] = cleanup/refine with Gemini")
     print(f"  [{args.plan_hotkey}] = implementation plan with Gemini")
+    print(f"  [{args.history_hotkey}] = toggle history window")
     print("Press Ctrl+C to exit.\n")
 
     # Preload model
     _ = transcriber.model
 
     def on_start(mode):
+        # History mode: open app immediately, don't record
+        if mode == "history":
+            open_history_app()
+            return
+
         current_mode[0] = mode
         mode_labels = {"greppy": "Greppy", "cleanup": "Cleanup", "transcribe": "Transcribe", "plan": "Plan"}
         mode_label = mode_labels.get(mode, "Transcribe")
@@ -140,6 +180,10 @@ def main():
         recorder.start()
 
     def on_stop(mode):
+        # History mode: nothing to do on release
+        if mode == "history":
+            return
+
         audio = recorder.stop()
         if ui:
             ui.hide_recording()
@@ -208,6 +252,9 @@ def main():
                 output = text + context
             else:
                 output = text
+
+        # Save to history
+        history.add_entry(text, mode)
 
         # Paste at cursor
         paste_at_cursor(output)

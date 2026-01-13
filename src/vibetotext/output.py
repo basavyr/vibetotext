@@ -57,47 +57,21 @@ def get_running_app_info():
 
 
 def simulate_paste():
-    """Simulate Cmd+V using CGEventPost."""
+    """Simulate Cmd+V using AppleScript (more reliable than CGEventPost)."""
     try:
-        from Quartz import (
-            CGEventCreateKeyboardEvent,
-            CGEventPost,
-            kCGHIDEventTap,
-            kCGSessionEventTap,
-            CGEventSetFlags,
-            kCGEventFlagMaskCommand
+        print("[DEBUG] Using AppleScript to paste...")
+        result = subprocess.run(
+            ['osascript', '-e', 'tell application "System Events" to keystroke "v" using command down'],
+            capture_output=True,
+            text=True,
+            timeout=5
         )
-
-        V_KEY = 9  # Virtual key code for 'V'
-
-        print(f"[DEBUG] Creating keyboard events for Cmd+V (key code {V_KEY})")
-
-        # Key down with Command modifier
-        event_down = CGEventCreateKeyboardEvent(None, V_KEY, True)
-        if event_down is None:
-            print("[DEBUG] ERROR: CGEventCreateKeyboardEvent returned None for key down")
+        if result.returncode == 0:
+            print("[DEBUG] AppleScript paste successful")
+            return True
+        else:
+            print(f"[DEBUG] AppleScript failed: {result.stderr}")
             return False
-
-        CGEventSetFlags(event_down, kCGEventFlagMaskCommand)
-        print(f"[DEBUG] Created key down event: {event_down}")
-
-        # Key up
-        event_up = CGEventCreateKeyboardEvent(None, V_KEY, False)
-        if event_up is None:
-            print("[DEBUG] ERROR: CGEventCreateKeyboardEvent returned None for key up")
-            return False
-        CGEventSetFlags(event_up, kCGEventFlagMaskCommand)
-        print(f"[DEBUG] Created key up event: {event_up}")
-
-        # Try posting to HID event tap first
-        print(f"[DEBUG] Posting to kCGHIDEventTap...")
-        CGEventPost(kCGHIDEventTap, event_down)
-        time.sleep(0.02)
-        CGEventPost(kCGHIDEventTap, event_up)
-
-        print(f"[DEBUG] Events posted successfully")
-        return True
-
     except Exception as e:
         print(f"[DEBUG] simulate_paste() exception: {e}")
         import traceback
@@ -120,7 +94,7 @@ def paste_at_cursor(text: str):
     # Check permission
     if has_accessibility_permission():
         print("[DEBUG] Have accessibility permission, attempting auto-paste...")
-        time.sleep(0.1)  # Let clipboard sync
+        time.sleep(0.3)  # Wait for hotkey modifiers to be fully released
 
         if simulate_paste():
             print("[DEBUG] Auto-paste attempted")

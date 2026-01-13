@@ -137,6 +137,7 @@ class HotkeyListener:
         self._recording = False
         self._active_mode = None
         self._timeout_timer = None
+        self._lock = threading.Lock()  # Prevent race condition on key release
 
     def _cancel_timeout(self):
         """Cancel any pending timeout."""
@@ -206,19 +207,22 @@ class HotkeyListener:
             except AttributeError:
                 return
 
-            # If any hotkey part is released while recording, stop
-            if self._recording and key_name in self._active_parts:
-                self._cancel_timeout()
-                mode = self._active_mode
-                self._recording = False
-                self._active_mode = None
-                self._active_parts = None
-                # Clear pressed set to avoid stale state
-                self._pressed.clear()
-                if self.on_stop:
-                    self.on_stop(mode)
-            else:
-                self._pressed.discard(key_name)
+            # Use lock to prevent race condition when both hotkey parts release at once
+            with self._lock:
+                # If any hotkey part is released while recording, stop
+                if self._recording and self._active_parts and key_name in self._active_parts:
+                    self._cancel_timeout()
+                    mode = self._active_mode
+                    self._recording = False
+                    self._active_mode = None
+                    self._active_parts = None
+                    # Clear pressed set to avoid stale state
+                    self._pressed.clear()
+                    print(f"[HOTKEY] Stopping recording, mode={mode}")
+                    if self.on_stop:
+                        self.on_stop(mode)
+                else:
+                    self._pressed.discard(key_name)
 
         self.listener = keyboard.Listener(on_press=on_press, on_release=on_release)
         self.listener.start()
