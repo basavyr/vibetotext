@@ -103,9 +103,26 @@ function render() {
   const totalSessions = entries.length;
   const totalWords = entries.reduce((sum, e) => sum + (e.word_count || e.text.split(/\s+/).length), 0);
 
+  // Calculate average WPM from entries that have it
+  const wpmEntries = entries.filter(e => e.wpm).map(e => e.wpm);
+  const avgWpm = wpmEntries.length > 0 ? Math.round(wpmEntries.reduce((a, b) => a + b, 0) / wpmEntries.length) : 0;
+
+  // Calculate time saved - only from entries that have duration data
+  // (entries before duration tracking was added don't count)
+  const entriesWithDuration = entries.filter(e => e.duration_seconds);
+  const totalDuration = entriesWithDuration.reduce((sum, e) => sum + e.duration_seconds, 0);
+  const wordsWithDuration = entriesWithDuration.reduce((sum, e) => sum + (e.word_count || e.text.split(/\s+/).length), 0);
+  // Time it would take to type at 40 WPM
+  const typingWpm = 40;
+  const timeToTypeMinutes = wordsWithDuration / typingWpm;
+  const timeDictatingMinutes = totalDuration / 60;
+  const timeSavedMinutes = Math.max(0, timeToTypeMinutes - timeDictatingMinutes);
+
   // Update stats (only text content, no DOM rebuild)
   document.getElementById('total-sessions').textContent = totalSessions.toLocaleString();
   document.getElementById('total-words').textContent = totalWords.toLocaleString();
+  document.getElementById('avg-wpm').textContent = avgWpm > 0 ? avgWpm : '--';
+  document.getElementById('time-saved').textContent = timeSavedMinutes.toFixed(1);
 
   // Show/hide empty state
   const emptyState = document.getElementById('empty-state');
@@ -135,6 +152,13 @@ function render() {
     const wordCount = entry.word_count || entry.text.split(/\s+/).length;
     const mode = entry.mode || 'transcribe';
     const timeStr = formatTime(entry.timestamp);
+    const wpm = entry.wpm;
+    const duration = entry.duration_seconds;
+
+    // Format duration as seconds
+    const durationStr = duration ? `${duration.toFixed(1)}s` : '';
+    const wpmStr = wpm ? `${wpm} WPM` : '';
+    const statsStr = [durationStr, wpmStr, `${wordCount} words`].filter(Boolean).join(' · ');
 
     return `
       <div class="entry" data-timestamp="${entry.timestamp}">
@@ -143,7 +167,7 @@ function render() {
           <span class="entry-mode ${mode}">${mode}</span>
         </div>
         <div class="entry-text">${escapeHtml(entry.text)}</div>
-        <div class="entry-words">${wordCount} words</div>
+        <div class="entry-stats">${statsStr}</div>
       </div>
     `;
   }).join('');

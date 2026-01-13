@@ -64,7 +64,13 @@ class TranscriptionHistory:
         with open(self.path, "w") as f:
             json.dump(data, f, indent=2)
 
-    def add_entry(self, text: str, mode: str, timestamp: Optional[datetime] = None):
+    def add_entry(
+        self,
+        text: str,
+        mode: str,
+        timestamp: Optional[datetime] = None,
+        duration_seconds: Optional[float] = None,
+    ):
         """
         Add a transcription entry to history (non-blocking).
 
@@ -72,9 +78,18 @@ class TranscriptionHistory:
             text: Transcribed text
             mode: Mode used (transcribe, greppy, cleanup, plan)
             timestamp: When transcription occurred (defaults to now)
+            duration_seconds: Audio recording duration in seconds
         """
         if timestamp is None:
             timestamp = datetime.now()
+
+        word_count = len(text.split())
+
+        # Calculate WPM if we have duration
+        wpm = None
+        if duration_seconds and duration_seconds > 0:
+            minutes = duration_seconds / 60
+            wpm = round(word_count / minutes) if minutes > 0 else None
 
         # Save in background thread to not block pasting
         def save_async():
@@ -84,10 +99,14 @@ class TranscriptionHistory:
                     "text": text,
                     "mode": mode,
                     "timestamp": timestamp.isoformat(),
-                    "word_count": len(text.split()),
+                    "word_count": word_count,
+                    "duration_seconds": duration_seconds,
+                    "wpm": wpm,
                 }
                 data["entries"].append(entry)
                 self._save(data)
+                print(f"[HISTORY] Saving entry to {self.path}, total entries: {len(data['entries'])}")
+                print(f"[HISTORY] Save complete")
             except Exception as e:
                 print(f"[HISTORY] Error saving: {e}")
 
@@ -119,7 +138,7 @@ class TranscriptionHistory:
         Compute statistics from all history.
 
         Returns:
-            Dict with total_words, total_sessions, common_words
+            Dict with total_words, total_sessions, common_words, avg_wpm, time_saved_minutes
         """
         data = self._load()
         entries = data["entries"]
@@ -129,11 +148,34 @@ class TranscriptionHistory:
                 "total_words": 0,
                 "total_sessions": 0,
                 "common_words": [],
+                "avg_wpm": 0,
+                "time_saved_minutes": 0,
+                "total_duration_seconds": 0,
             }
 
         # Total counts
         total_words = sum(e.get("word_count", len(e["text"].split())) for e in entries)
         total_sessions = len(entries)
+
+        # Calculate average WPM from entries that have it
+        wpm_entries = [e["wpm"] for e in entries if e.get("wpm")]
+        avg_wpm = round(sum(wpm_entries) / len(wpm_entries)) if wpm_entries else 0
+
+        # Total recording duration
+        total_duration = sum(e.get("duration_seconds", 0) or 0 for e in entries)
+
+        # Time saved calculation:
+        # Only count entries that have duration_seconds (entries before this feature don't count)
+        # Average typing speed is ~40 WPM
+        # Time to type = words / 40 minutes
+        # Time spent dictating = duration / 60 minutes
+        # Time saved = time_to_type - time_dictating
+        typing_wpm = 40
+        entries_with_duration = [e for e in entries if e.get("duration_seconds")]
+        words_with_duration = sum(e.get("word_count", len(e["text"].split())) for e in entries_with_duration)
+        time_to_type_minutes = words_with_duration / typing_wpm
+        time_dictating_minutes = total_duration / 60
+        time_saved_minutes = max(0, time_to_type_minutes - time_dictating_minutes)
 
         # Word frequency (excluding stopwords)
         all_words = []
@@ -151,6 +193,9 @@ class TranscriptionHistory:
             "total_words": total_words,
             "total_sessions": total_sessions,
             "common_words": common_words,
+            "avg_wpm": avg_wpm,
+            "time_saved_minutes": round(time_saved_minutes, 1),
+            "total_duration_seconds": round(total_duration, 1),
         }
 
     def clear(self):

@@ -180,23 +180,34 @@ def main():
         recorder.start()
 
     def on_stop(mode):
+        import time as t
+        total_start = t.perf_counter()
+
         # History mode: nothing to do on release
         if mode == "history":
             return
 
+        t0 = t.perf_counter()
         audio = recorder.stop()
+        t1 = t.perf_counter()
+        print(f" done. [stop: {(t1-t0)*1000:.0f}ms]")
+
         if ui:
             ui.hide_recording()
-        print(" done.")
 
         if len(audio) == 0:
             print("No audio recorded.")
             return
 
+        # Calculate audio duration for stats
+        duration_seconds = len(audio) / 16000  # Sample rate is 16000
+
         # Transcribe
         print("Transcribing...", end="", flush=True)
+        t2 = t.perf_counter()
         text = transcriber.transcribe(audio)
-        print(" done.")
+        t3 = t.perf_counter()
+        print(f" done. [transcribe: {(t3-t2)*1000:.0f}ms]")
 
         if not text:
             print("No speech detected.")
@@ -243,22 +254,19 @@ def main():
                 output = text
 
         else:
-            # Regular transcribe mode
-            if not args.no_context:
-                print("Searching for relevant code...", end="", flush=True)
-                snippets = search_context(text, limit=args.context_limit)
-                context = format_context(snippets)
-                print(f" found {len(snippets)} snippets.")
-                output = text + context
-            else:
-                output = text
+            # Regular transcribe mode - just transcribe, no context search
+            # Use greppy mode (cmd+shift) if you want code search
+            output = text
 
-        # Save to history
-        history.add_entry(text, mode)
+        # Save to history with duration for WPM calculation
+        history.add_entry(text, mode, duration_seconds=duration_seconds)
 
         # Paste at cursor
+        t4 = t.perf_counter()
         paste_at_cursor(output)
-        print("Pasted at cursor.\n")
+        t5 = t.perf_counter()
+        total_end = t.perf_counter()
+        print(f"Pasted at cursor. [paste: {(t5-t4)*1000:.0f}ms] [TOTAL: {(total_end-total_start)*1000:.0f}ms]\n")
 
     # Start listening
     hotkey_listener = listener.start(on_start, on_stop)
