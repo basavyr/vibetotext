@@ -5,13 +5,16 @@ import sounddevice as sd
 from typing import Optional
 import threading
 import queue
+import tempfile
+import os
 
 
 class AudioRecorder:
     """Records audio from microphone."""
 
-    def __init__(self, sample_rate: int = 16000):
+    def __init__(self, sample_rate: int = 16000, device: int | None = None):
         self.sample_rate = sample_rate
+        self.device = device
         self.recording = False
         self.audio_queue = queue.Queue()
         self._audio_data = []
@@ -25,9 +28,10 @@ class AudioRecorder:
             # Debug: always write to file to confirm callback runs
             if not hasattr(self, '_cb_count'):
                 self._cb_count = 0
+                self._debug_file = os.path.join(tempfile.gettempdir(), 'vibetotext_callback_debug.txt')
             self._cb_count += 1
             if self._cb_count <= 3:
-                with open('/tmp/vibetotext_callback_debug.txt', 'a') as f:
+                with open(self._debug_file, 'a') as f:
                     f.write(f"Callback #{self._cb_count}, on_level={self.on_level is not None}\n")
 
             # Calculate waveform visualization based on audio amplitude
@@ -79,10 +83,13 @@ class AudioRecorder:
 
         # Log audio device info
         try:
-            default_device = sd.query_devices(kind='input')
-            print(f"[AUDIO] Using input device: {default_device['name']}")
+            if self.device is not None:
+                device_info = sd.query_devices(self.device)
+                print(f"[AUDIO] Using configured device: {device_info['name']} (index {self.device})")
+            else:
+                device_info = sd.query_devices(kind='input')
+                print(f"[AUDIO] Using system default: {device_info['name']}")
             print(f"[AUDIO] Sample rate: {self.sample_rate}, Channels: 1")
-            print(f"[AUDIO] Device index: {sd.default.device[0]}, Max input channels: {default_device['max_input_channels']}")
         except Exception as e:
             print(f"[AUDIO] Could not query device info: {e}")
 
@@ -91,6 +98,7 @@ class AudioRecorder:
             channels=1,
             dtype=np.float32,
             callback=self._callback,
+            device=self.device,
         )
         self.stream.start()
 

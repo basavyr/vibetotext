@@ -25,6 +25,7 @@ from AppKit import (
     NSWindowStyleMaskClosable, NSWindowStyleMaskResizable,
     NSTimer, NSTextField, NSScrollView, NSTextView,
     NSBezelBorder, NSLayoutAttributeWidth, NSLayoutAttributeHeight,
+    NSPopUpButton, NSBox,
 )
 from Foundation import NSObject, NSAttributedString, NSMutableAttributedString
 from Foundation import NSForegroundColorAttributeName, NSFontAttributeName
@@ -32,6 +33,48 @@ import objc
 
 IPC_FILE = sys.argv[1]
 HISTORY_FILE = Path.home() / ".vibetotext" / "history.json"
+CONFIG_FILE = Path.home() / ".vibetotext" / "config.json"
+
+
+def get_audio_devices():
+    """Get list of input audio devices."""
+    try:
+        import sounddevice as sd
+        devices = sd.query_devices()
+        input_devices = []
+        default_idx = sd.default.device[0]
+        for i, dev in enumerate(devices):
+            if dev['max_input_channels'] > 0:
+                is_default = (i == default_idx)
+                input_devices.append({
+                    'index': i,
+                    'name': dev['name'],
+                    'is_default': is_default,
+                })
+        return input_devices
+    except Exception:
+        return []
+
+
+def load_config():
+    """Load config from disk."""
+    try:
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def save_config(config):
+    """Save config to disk."""
+    try:
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(config, f, indent=2)
+    except Exception:
+        pass
 
 # Stopwords for statistics (same as history.py)
 STOPWORDS = {
@@ -95,6 +138,8 @@ class HistoryWindow(NSObject):
             self.window = None
             self.visible = False
             self.text_view = None
+            self.mic_dropdown = None
+            self.audio_devices = []
         return self
 
     def applicationDidFinishLaunching_(self, notification):
@@ -117,9 +162,48 @@ class HistoryWindow(NSObject):
             NSColor.colorWithCalibratedRed_green_blue_alpha_(0.12, 0.12, 0.14, 1.0)
         )
 
-        # Create scroll view with text view
+        # Create microphone label
+        mic_label = NSTextField.alloc().initWithFrame_(
+            NSMakeRect(15, height - 40, 85, 20)
+        )
+        mic_label.setStringValue_("Microphone:")
+        mic_label.setBezeled_(False)
+        mic_label.setDrawsBackground_(False)
+        mic_label.setEditable_(False)
+        mic_label.setSelectable_(False)
+        mic_label.setTextColor_(
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.8, 0.8, 0.8, 1.0)
+        )
+        mic_label.setFont_(NSFont.systemFontOfSize_(12.0))
+        self.window.contentView().addSubview_(mic_label)
+
+        # Create microphone dropdown
+        self.mic_dropdown = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+            NSMakeRect(100, height - 42, width - 115, 24), False
+        )
+        self.audio_devices = get_audio_devices()
+        config = load_config()
+        saved_device = config.get("audio_device_index")
+
+        selected_idx = 0
+        for i, dev in enumerate(self.audio_devices):
+            name = dev['name']
+            if dev['is_default']:
+                name += " (System Default)"
+            self.mic_dropdown.addItemWithTitle_(name)
+            if saved_device is not None and dev['index'] == saved_device:
+                selected_idx = i
+
+        if self.audio_devices:
+            self.mic_dropdown.selectItemAtIndex_(selected_idx)
+
+        self.mic_dropdown.setTarget_(self)
+        self.mic_dropdown.setAction_("microphoneChanged:")
+        self.window.contentView().addSubview_(self.mic_dropdown)
+
+        # Create scroll view with text view (below the dropdown)
         scroll_view = NSScrollView.alloc().initWithFrame_(
-            NSMakeRect(15, 15, width - 30, height - 30)
+            NSMakeRect(15, 15, width - 30, height - 60)
         )
         scroll_view.setHasVerticalScroller_(True)
         scroll_view.setBorderType_(NSBezelBorder)
@@ -169,6 +253,16 @@ class HistoryWindow(NSObject):
                 json.dump({"visible": False}, f)
         except Exception:
             pass
+
+    def microphoneChanged_(self, sender):
+        """Called when microphone dropdown selection changes."""
+        idx = sender.indexOfSelectedItem()
+        if 0 <= idx < len(self.audio_devices):
+            device = self.audio_devices[idx]
+            config = load_config()
+            config["audio_device_index"] = device['index']
+            config["audio_device_name"] = device['name']
+            save_config(config)
 
     def refresh_content(self):
         """Refresh the history display."""

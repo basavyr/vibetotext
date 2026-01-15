@@ -4,7 +4,9 @@ import argparse
 import os
 import subprocess
 import sys
+import tempfile
 import time
+import traceback
 from pathlib import Path
 
 from vibetotext.recorder import AudioRecorder, HotkeyListener
@@ -104,8 +106,8 @@ def main():
     parser.add_argument(
         "--device",
         type=int,
-        default=1,  # Shure MV7i
-        help="Audio input device index (default: 1 for Shure MV7i)",
+        default=None,
+        help="Audio input device index (overrides saved config)",
     )
 
     args = parser.parse_args()
@@ -119,16 +121,36 @@ def main():
         except Exception as e:
             print(f"UI disabled: {e}")
 
+    # Load config for saved audio device (unless overridden by --device)
+    import json
+    config_file = Path.home() / ".vibetotext" / "config.json"
+    saved_device = args.device  # Command line takes priority
+    if saved_device is None:
+        try:
+            if config_file.exists():
+                with open(config_file, "r") as f:
+                    config = json.load(f)
+                    saved_device = config.get("audio_device_index")
+        except Exception:
+            pass
+
     # Set audio device
     import sounddevice as sd
-    sd.default.device[0] = args.device  # Set input device
+    if saved_device is not None:
+        sd.default.device[0] = saved_device  # Set input device
 
     # Log available audio devices
     print("\n[AUDIO] Available input devices:")
     devices = sd.query_devices()
+    default_input = sd.default.device[0]
     for i, dev in enumerate(devices):
         if dev['max_input_channels'] > 0:
-            marker = " <-- SELECTED" if i == args.device else ""
+            if saved_device is not None and i == saved_device:
+                marker = " <-- SELECTED"
+            elif saved_device is None and i == default_input:
+                marker = " <-- DEFAULT"
+            else:
+                marker = ""
             print(f"  [{i}] {dev['name']} ({dev['max_input_channels']} ch){marker}")
     print()
 
@@ -166,107 +188,138 @@ def main():
     _ = transcriber.model
 
     def on_start(mode):
-        # History mode: open app immediately, don't record
-        if mode == "history":
-            open_history_app()
-            return
+        try:
+            # History mode: open app immediately, don't record
+            if mode == "history":
+                open_history_app()
+                return
 
-        current_mode[0] = mode
-        mode_labels = {"greppy": "Greppy", "cleanup": "Cleanup", "transcribe": "Transcribe", "plan": "Plan"}
-        mode_label = mode_labels.get(mode, "Transcribe")
-        print(f"Recording ({mode_label})...", end="", flush=True)
-        if ui:
-            ui.show_recording()
-        recorder.start()
+            current_mode[0] = mode
+            mode_labels = {"greppy": "Greppy", "cleanup": "Cleanup", "transcribe": "Transcribe", "plan": "Plan"}
+            mode_label = mode_labels.get(mode, "Transcribe")
+            print(f"Recording ({mode_label})...", end="", flush=True)
+            if ui:
+                ui.show_recording()
+            recorder.start()
+        except Exception as e:
+            error_log = os.path.join(tempfile.gettempdir(), "vibetotext_crash.log")
+            error_msg = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Error in on_start (mode={mode}):\n"
+            error_msg += traceback.format_exc()
+
+            with open(error_log, "a") as f:
+                f.write(error_msg + "\n")
+
+            print(f"\n[ERROR] Failed to start recording: {e}")
+            print(f"[ERROR] Full traceback logged to: {error_log}")
 
     def on_stop(mode):
-        import time as t
-        total_start = t.perf_counter()
+        try:
+            import time as t
+            total_start = t.perf_counter()
 
-        # History mode: nothing to do on release
-        if mode == "history":
-            return
+            # History mode: nothing to do on release
+            if mode == "history":
+                return
 
-        t0 = t.perf_counter()
-        audio = recorder.stop()
-        t1 = t.perf_counter()
-        print(f" done. [stop: {(t1-t0)*1000:.0f}ms]")
+            t0 = t.perf_counter()
+            audio = recorder.stop()
+            t1 = t.perf_counter()
+            print(f" done. [stop: {(t1-t0)*1000:.0f}ms]")
 
-        if ui:
-            ui.hide_recording()
+            if ui:
+                ui.hide_recording()
 
-        if len(audio) == 0:
-            print("No audio recorded.")
-            return
+            if len(audio) == 0:
+                print("No audio recorded.")
+                return
 
-        # Calculate audio duration for stats
-        duration_seconds = len(audio) / 16000  # Sample rate is 16000
+            # Calculate audio duration for stats
+            duration_seconds = len(audio) / 16000  # Sample rate is 16000
 
-        # Transcribe
-        print("Transcribing...", end="", flush=True)
-        t2 = t.perf_counter()
-        text = transcriber.transcribe(audio)
-        t3 = t.perf_counter()
-        print(f" done. [transcribe: {(t3-t2)*1000:.0f}ms]")
+            # Transcribe
+            print("Transcribing...", end="", flush=True)
+            t2 = t.perf_counter()
+            text = transcriber.transcribe(audio)
+            t3 = t.perf_counter()
+            print(f" done. [transcribe: {(t3-t2)*1000:.0f}ms]")
 
-        if not text:
-            print("No speech detected.")
-            return
+            if not text:
+                print("No speech detected.")
+                return
 
-        print(f"Transcribed: {text}")
+            print(f"Transcribed: {text}")
 
-        if mode == "greppy":
-            # Greppy mode: search for relevant files and attach them
-            print("Searching with Greppy...", end="", flush=True)
-            files = search_files(text, limit=args.greppy_limit, codebase=args.codebase)
-            print(f" found {len(files)} files.")
+            if mode == "greppy":
+                # Greppy mode: search for relevant files and attach them
+                print("Searching with Greppy...", end="", flush=True)
+                files = search_files(text, limit=args.greppy_limit, codebase=args.codebase)
+                print(f" found {len(files)} files.")
 
-            if files:
-                for filepath, line_num in files:
-                    print(f"  - {filepath}:{line_num}")
+                if files:
+                    for filepath, line_num in files:
+                        print(f"  - {filepath}:{line_num}")
 
-            # Format output with file contents
-            context = format_files_for_context(files)
-            output = text + context
+                # Format output with file contents
+                context = format_files_for_context(files)
+                output = text + context
 
-        elif mode == "cleanup":
-            # Cleanup mode: use Gemini to refine rambling into clear prompt
-            print("Cleaning up with Gemini...", end="", flush=True)
-            refined = cleanup_text(text)
-            if refined:
-                print(" done.")
-                print(f"Refined: {refined[:100]}..." if len(refined) > 100 else f"Refined: {refined}")
-                output = refined
+            elif mode == "cleanup":
+                # Cleanup mode: use Gemini to refine rambling into clear prompt
+                print("Cleaning up with Gemini...", end="", flush=True)
+                refined = cleanup_text(text)
+                if refined:
+                    print(" done.")
+                    print(f"Refined: {refined[:100]}..." if len(refined) > 100 else f"Refined: {refined}")
+                    output = refined
+                else:
+                    print(" failed, using original.")
+                    output = text
+
+            elif mode == "plan":
+                # Plan mode: use Gemini to generate implementation plan
+                print("Generating implementation plan...", end="", flush=True)
+                plan = generate_implementation_plan(text)
+                if plan:
+                    print(" done.")
+                    print(f"Plan: {plan[:150]}..." if len(plan) > 150 else f"Plan: {plan}")
+                    output = plan
+                else:
+                    print(" failed, using original.")
+                    output = text
+
             else:
-                print(" failed, using original.")
+                # Regular transcribe mode - just transcribe, no context search
+                # Use greppy mode (cmd+shift) if you want code search
                 output = text
 
-        elif mode == "plan":
-            # Plan mode: use Gemini to generate implementation plan
-            print("Generating implementation plan...", end="", flush=True)
-            plan = generate_implementation_plan(text)
-            if plan:
-                print(" done.")
-                print(f"Plan: {plan[:150]}..." if len(plan) > 150 else f"Plan: {plan}")
-                output = plan
-            else:
-                print(" failed, using original.")
-                output = text
+            # Save to history with duration for WPM calculation
+            history.add_entry(text, mode, duration_seconds=duration_seconds)
 
-        else:
-            # Regular transcribe mode - just transcribe, no context search
-            # Use greppy mode (cmd+shift) if you want code search
-            output = text
+            # Paste at cursor
+            t4 = t.perf_counter()
+            paste_at_cursor(output)
+            t5 = t.perf_counter()
+            total_end = t.perf_counter()
+            print(f"Pasted at cursor. [paste: {(t5-t4)*1000:.0f}ms] [TOTAL: {(total_end-total_start)*1000:.0f}ms]\n")
 
-        # Save to history with duration for WPM calculation
-        history.add_entry(text, mode, duration_seconds=duration_seconds)
+        except Exception as e:
+            # Log error to file and print to console
+            error_log = os.path.join(tempfile.gettempdir(), "vibetotext_crash.log")
+            error_msg = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Error in on_stop (mode={mode}):\n"
+            error_msg += traceback.format_exc()
 
-        # Paste at cursor
-        t4 = t.perf_counter()
-        paste_at_cursor(output)
-        t5 = t.perf_counter()
-        total_end = t.perf_counter()
-        print(f"Pasted at cursor. [paste: {(t5-t4)*1000:.0f}ms] [TOTAL: {(total_end-total_start)*1000:.0f}ms]\n")
+            with open(error_log, "a") as f:
+                f.write(error_msg + "\n")
+
+            print(f"\n[ERROR] {e}")
+            print(f"[ERROR] Full traceback logged to: {error_log}")
+
+            # Hide UI if still showing
+            if ui:
+                try:
+                    ui.hide_recording()
+                except Exception:
+                    pass
 
     # Start listening
     hotkey_listener = listener.start(on_start, on_stop)

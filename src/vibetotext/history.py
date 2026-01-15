@@ -1,8 +1,10 @@
-"""Transcription history storage and analytics."""
+"""Transcription history storage and analytics using SQLite."""
 
 import json
+import sqlite3
 import threading
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -31,38 +33,99 @@ STOPWORDS = {
 
 
 class TranscriptionHistory:
-    """Manages persistent storage of transcription history."""
+    """Manages persistent storage of transcription history using SQLite."""
 
     def __init__(self, path: Optional[Path] = None):
         """
         Initialize history storage.
 
         Args:
-            path: Path to history JSON file. Defaults to ~/.vibetotext/history.json
+            path: Path to history database file. Defaults to ~/.vibetotext/history.db
         """
         if path is None:
-            path = Path.home() / ".vibetotext" / "history.json"
+            path = Path.home() / ".vibetotext" / "history.db"
         self.path = Path(path)
         self._ensure_storage()
+        self._migrate_from_json()
 
     def _ensure_storage(self):
-        """Create storage directory and file if they don't exist."""
+        """Create storage directory and database if they don't exist."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.path.exists():
-            self._save({"entries": []})
+        with self._get_connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    word_count INTEGER NOT NULL,
+                    duration_seconds REAL,
+                    wpm INTEGER
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_timestamp ON entries(timestamp DESC)
+            """)
+            conn.commit()
 
-    def _load(self) -> dict:
-        """Load history from disk."""
+    def _migrate_from_json(self):
+        """Migrate existing JSON history to SQLite (one-time operation)."""
+        json_path = self.path.with_suffix(".json")
+        if not json_path.exists():
+            return
+
+        # Check if we already have entries (don't migrate twice)
+        with self._get_connection() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
+            if count > 0:
+                return
+
         try:
-            with open(self.path, "r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return {"entries": []}
+            with open(json_path, "r") as f:
+                data = json.load(f)
 
-    def _save(self, data: dict):
-        """Save history to disk."""
-        with open(self.path, "w") as f:
-            json.dump(data, f, indent=2)
+            entries = data.get("entries", [])
+            if not entries:
+                return
+
+            print(f"[HISTORY] Migrating {len(entries)} entries from JSON to SQLite...")
+
+            with self._get_connection() as conn:
+                for entry in entries:
+                    conn.execute("""
+                        INSERT INTO entries (text, mode, timestamp, word_count, duration_seconds, wpm)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        entry.get("text", ""),
+                        entry.get("mode", "transcribe"),
+                        entry.get("timestamp", datetime.now().isoformat()),
+                        entry.get("word_count", len(entry.get("text", "").split())),
+                        entry.get("duration_seconds"),
+                        entry.get("wpm"),
+                    ))
+                conn.commit()
+
+            # Rename old JSON file as backup
+            backup_path = json_path.with_suffix(".json.migrated")
+            json_path.rename(backup_path)
+            print(f"[HISTORY] Migration complete. Old file renamed to {backup_path}")
+
+        except Exception as e:
+            print(f"[HISTORY] Migration failed: {e}")
+
+    @contextmanager
+    def _get_connection(self):
+        """Get a database connection with proper settings."""
+        conn = sqlite3.connect(
+            str(self.path),
+            timeout=30.0,  # Wait up to 30 seconds for locks
+            isolation_level="IMMEDIATE",  # Acquire lock immediately on write
+        )
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def add_entry(
         self,
@@ -94,19 +157,15 @@ class TranscriptionHistory:
         # Save in background thread to not block pasting
         def save_async():
             try:
-                data = self._load()
-                entry = {
-                    "text": text,
-                    "mode": mode,
-                    "timestamp": timestamp.isoformat(),
-                    "word_count": word_count,
-                    "duration_seconds": duration_seconds,
-                    "wpm": wpm,
-                }
-                data["entries"].append(entry)
-                self._save(data)
-                print(f"[HISTORY] Saving entry to {self.path}, total entries: {len(data['entries'])}")
-                print(f"[HISTORY] Save complete")
+                with self._get_connection() as conn:
+                    conn.execute("""
+                        INSERT INTO entries (text, mode, timestamp, word_count, duration_seconds, wpm)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (text, mode, timestamp.isoformat(), word_count, duration_seconds, wpm))
+                    conn.commit()
+
+                    count = conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
+                    print(f"[HISTORY] Saved entry to {self.path}, total entries: {count}")
             except Exception as e:
                 print(f"[HISTORY] Error saving: {e}")
 
@@ -123,15 +182,18 @@ class TranscriptionHistory:
         Returns:
             List of entry dicts with text, mode, timestamp, word_count
         """
-        data = self._load()
-        entries = sorted(
-            data["entries"],
-            key=lambda x: x["timestamp"],
-            reverse=True,
-        )
-        if limit:
-            entries = entries[:limit]
-        return entries
+        with self._get_connection() as conn:
+            if limit:
+                rows = conn.execute(
+                    "SELECT * FROM entries ORDER BY timestamp DESC LIMIT ?",
+                    (limit,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM entries ORDER BY timestamp DESC"
+                ).fetchall()
+
+            return [dict(row) for row in rows]
 
     def get_statistics(self) -> dict:
         """
@@ -140,64 +202,71 @@ class TranscriptionHistory:
         Returns:
             Dict with total_words, total_sessions, common_words, avg_wpm, time_saved_minutes
         """
-        data = self._load()
-        entries = data["entries"]
+        with self._get_connection() as conn:
+            # Get aggregate stats
+            stats = conn.execute("""
+                SELECT
+                    COUNT(*) as total_sessions,
+                    COALESCE(SUM(word_count), 0) as total_words,
+                    COALESCE(SUM(duration_seconds), 0) as total_duration
+                FROM entries
+            """).fetchone()
 
-        if not entries:
+            total_sessions = stats["total_sessions"]
+            total_words = stats["total_words"]
+            total_duration = stats["total_duration"]
+
+            if total_sessions == 0:
+                return {
+                    "total_words": 0,
+                    "total_sessions": 0,
+                    "common_words": [],
+                    "avg_wpm": 0,
+                    "time_saved_minutes": 0,
+                    "total_duration_seconds": 0,
+                }
+
+            # Calculate average WPM
+            wpm_stats = conn.execute("""
+                SELECT AVG(wpm) as avg_wpm FROM entries WHERE wpm IS NOT NULL
+            """).fetchone()
+            avg_wpm = round(wpm_stats["avg_wpm"]) if wpm_stats["avg_wpm"] else 0
+
+            # Time saved calculation
+            typing_wpm = 40
+            words_with_duration = conn.execute("""
+                SELECT COALESCE(SUM(word_count), 0) as words
+                FROM entries WHERE duration_seconds IS NOT NULL
+            """).fetchone()["words"]
+
+            time_to_type_minutes = words_with_duration / typing_wpm
+            time_dictating_minutes = total_duration / 60
+            time_saved_minutes = max(0, time_to_type_minutes - time_dictating_minutes)
+
+            # Get all text for word frequency analysis
+            rows = conn.execute("SELECT text FROM entries").fetchall()
+
+            all_words = []
+            for row in rows:
+                words = row["text"].lower().split()
+                words = [w.strip(".,!?;:'\"()[]{}") for w in words]
+                words = [w for w in words if w and len(w) > 2 and w not in STOPWORDS]
+                all_words.extend(words)
+
+            word_counts = Counter(all_words)
+            common_words = word_counts.most_common(20)
+
             return {
-                "total_words": 0,
-                "total_sessions": 0,
-                "common_words": [],
-                "avg_wpm": 0,
-                "time_saved_minutes": 0,
-                "total_duration_seconds": 0,
+                "total_words": total_words,
+                "total_sessions": total_sessions,
+                "common_words": common_words,
+                "avg_wpm": avg_wpm,
+                "time_saved_minutes": round(time_saved_minutes, 1),
+                "total_duration_seconds": round(total_duration, 1),
             }
-
-        # Total counts
-        total_words = sum(e.get("word_count", len(e["text"].split())) for e in entries)
-        total_sessions = len(entries)
-
-        # Calculate average WPM from entries that have it
-        wpm_entries = [e["wpm"] for e in entries if e.get("wpm")]
-        avg_wpm = round(sum(wpm_entries) / len(wpm_entries)) if wpm_entries else 0
-
-        # Total recording duration
-        total_duration = sum(e.get("duration_seconds", 0) or 0 for e in entries)
-
-        # Time saved calculation:
-        # Only count entries that have duration_seconds (entries before this feature don't count)
-        # Average typing speed is ~40 WPM
-        # Time to type = words / 40 minutes
-        # Time spent dictating = duration / 60 minutes
-        # Time saved = time_to_type - time_dictating
-        typing_wpm = 40
-        entries_with_duration = [e for e in entries if e.get("duration_seconds")]
-        words_with_duration = sum(e.get("word_count", len(e["text"].split())) for e in entries_with_duration)
-        time_to_type_minutes = words_with_duration / typing_wpm
-        time_dictating_minutes = total_duration / 60
-        time_saved_minutes = max(0, time_to_type_minutes - time_dictating_minutes)
-
-        # Word frequency (excluding stopwords)
-        all_words = []
-        for entry in entries:
-            words = entry["text"].lower().split()
-            # Filter out stopwords and short words
-            words = [w.strip(".,!?;:'\"()[]{}") for w in words]
-            words = [w for w in words if w and len(w) > 2 and w not in STOPWORDS]
-            all_words.extend(words)
-
-        word_counts = Counter(all_words)
-        common_words = word_counts.most_common(20)
-
-        return {
-            "total_words": total_words,
-            "total_sessions": total_sessions,
-            "common_words": common_words,
-            "avg_wpm": avg_wpm,
-            "time_saved_minutes": round(time_saved_minutes, 1),
-            "total_duration_seconds": round(total_duration, 1),
-        }
 
     def clear(self):
         """Clear all history."""
-        self._save({"entries": []})
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM entries")
+            conn.commit()

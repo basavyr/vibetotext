@@ -425,8 +425,8 @@ function renderWordsChart(containerId, dailyArray) {
   const container = d3.select(containerId);
   container.html('');
 
-  if (dailyArray.length < 2) {
-    container.append('div').attr('class', 'analytics-empty').text('Need more data');
+  if (dailyArray.length === 0) {
+    container.append('div').attr('class', 'analytics-empty').text('No data yet');
     return;
   }
 
@@ -511,8 +511,8 @@ function renderTimeSavedChart(containerId, dailyArray) {
   const container = d3.select(containerId);
   container.html('');
 
-  if (dailyArray.length < 2) {
-    container.append('div').attr('class', 'analytics-empty').text('Need more data');
+  if (dailyArray.length === 0) {
+    container.append('div').attr('class', 'analytics-empty').text('No data yet');
     return;
   }
 
@@ -600,8 +600,8 @@ function renderWpmChart(containerId, dailyArray) {
   // Filter to only days with WPM data
   const wpmData = dailyArray.filter(d => d.avgWpm !== null);
 
-  if (wpmData.length < 2) {
-    container.append('div').attr('class', 'analytics-empty').text('Need more data');
+  if (wpmData.length === 0) {
+    container.append('div').attr('class', 'analytics-empty').text('No data yet');
     return;
   }
 
@@ -884,7 +884,7 @@ function renderCommonPhrases(containerId, topBigrams, topTrigrams) {
   const allPhrases = [...topTrigrams, ...topBigrams].slice(0, 12);
 
   if (allPhrases.length === 0) {
-    container.append('div').attr('class', 'analytics-empty').text('Need more data');
+    container.append('div').attr('class', 'analytics-empty').text('No phrases yet');
     return;
   }
 
@@ -904,8 +904,8 @@ function renderWpmByHour(containerId, avgWpmByHour) {
 
   const data = avgWpmByHour.map((wpm, hour) => ({ hour, wpm })).filter(d => d.wpm !== null);
 
-  if (data.length < 3) {
-    container.append('div').attr('class', 'analytics-empty').text('Need more data');
+  if (data.length === 0) {
+    container.append('div').attr('class', 'analytics-empty').text('No data yet');
     return;
   }
 
@@ -961,8 +961,8 @@ function renderSessionHistogram(containerId, sessionDurations) {
   const container = d3.select(containerId);
   container.html('');
 
-  if (sessionDurations.length < 5) {
-    container.append('div').attr('class', 'analytics-empty').text('Need more data');
+  if (sessionDurations.length === 0) {
+    container.append('div').attr('class', 'analytics-empty').text('No data yet');
     return;
   }
 
@@ -1095,8 +1095,8 @@ function renderWordCloud(containerId, wordFrequency) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 40);
 
-  if (words.length < 5) {
-    container.append('div').attr('class', 'analytics-empty').text('Need more data');
+  if (words.length === 0) {
+    container.append('div').attr('class', 'analytics-empty').text('No data yet');
     return;
   }
 
@@ -1123,8 +1123,8 @@ function renderSentimentChart(containerId, sentimentArray) {
   const container = d3.select(containerId);
   container.html('');
 
-  if (sentimentArray.length < 2) {
-    container.append('div').attr('class', 'analytics-empty').text('Need more data');
+  if (sentimentArray.length === 0) {
+    container.append('div').attr('class', 'analytics-empty').text('No data yet');
     return;
   }
 

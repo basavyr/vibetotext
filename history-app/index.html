@@ -37,6 +37,7 @@
       <button class="tab" data-mode="cleanup">Cleanup</button>
       <button class="tab" data-mode="plan">Plan</button>
       <button class="tab" data-mode="analytics">Analytics</button>
+      <button class="tab" data-mode="microphone">Microphone</button>
     </div>
 
     <div class="common-words" id="common-words-section">
@@ -54,6 +55,17 @@
       </svg>
       <p>No transcriptions yet</p>
       <p class="hint">ctrl+shift to record</p>
+    </div>
+
+    <div class="microphone-panel" id="microphone-panel" style="display: none;">
+      <div class="mic-settings">
+        <h3>Audio Input Device</h3>
+        <p class="mic-description">Select the microphone to use for voice recording.</p>
+        <select id="mic-select" class="mic-dropdown">
+          <option value="">Loading devices...</option>
+        </select>
+        <p class="mic-status" id="mic-status"></p>
+      </div>
     </div>
 
     <div class="analytics-panel" id="analytics-panel" style="display: none;">

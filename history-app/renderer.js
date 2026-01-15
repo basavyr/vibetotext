@@ -2,8 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { ipcRenderer } = require('electron');
+const Database = require('better-sqlite3');
 
-const HISTORY_PATH = path.join(os.homedir(), '.vibetotext', 'history.json');
+const HISTORY_DB_PATH = path.join(os.homedir(), '.vibetotext', 'history.db');
+const HISTORY_JSON_PATH = path.join(os.homedir(), '.vibetotext', 'history.json');
+const CONFIG_PATH = path.join(os.homedir(), '.vibetotext', 'config.json');
 
 // Stopwords to filter from common words
 const STOPWORDS = new Set([
@@ -30,8 +33,20 @@ let currentMode = 'all';
 
 function loadHistory() {
   try {
-    if (fs.existsSync(HISTORY_PATH)) {
-      const data = fs.readFileSync(HISTORY_PATH, 'utf8');
+    // Try SQLite first (new format)
+    if (fs.existsSync(HISTORY_DB_PATH)) {
+      const db = new Database(HISTORY_DB_PATH, { readonly: true });
+      try {
+        const entries = db.prepare('SELECT * FROM entries ORDER BY timestamp DESC').all();
+        return { entries };
+      } finally {
+        db.close();
+      }
+    }
+
+    // Fall back to JSON (old format)
+    if (fs.existsSync(HISTORY_JSON_PATH)) {
+      const data = fs.readFileSync(HISTORY_JSON_PATH, 'utf8');
       return JSON.parse(data);
     }
   } catch (err) {
@@ -199,6 +214,93 @@ function updateTimestamps() {
   });
 }
 
+// Config functions
+function loadConfig() {
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      const data = fs.readFileSync(CONFIG_PATH, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Error loading config:', err);
+  }
+  return {};
+}
+
+function saveConfig(config) {
+  try {
+    const dir = path.dirname(CONFIG_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  } catch (err) {
+    console.error('Error saving config:', err);
+  }
+}
+
+// Microphone panel functions
+async function loadAudioDevices() {
+  const micSelect = document.getElementById('mic-select');
+  const micStatus = document.getElementById('mic-status');
+
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioInputs = devices.filter(d => d.kind === 'audioinput');
+
+    const config = loadConfig();
+    const savedDeviceId = config.audio_device_id;
+    const savedDeviceName = config.audio_device_name;
+
+    micSelect.innerHTML = '';
+
+    audioInputs.forEach((device, index) => {
+      const option = document.createElement('option');
+      option.value = device.deviceId;
+      option.textContent = device.label || `Microphone ${index + 1}`;
+      option.dataset.index = index;
+
+      // Try to match by device ID first, then by name
+      if (savedDeviceId && device.deviceId === savedDeviceId) {
+        option.selected = true;
+      } else if (savedDeviceName && device.label === savedDeviceName) {
+        option.selected = true;
+      }
+
+      micSelect.appendChild(option);
+    });
+
+    if (audioInputs.length === 0) {
+      micSelect.innerHTML = '<option value="">No microphones found</option>';
+    }
+
+    // Show current selection status
+    if (savedDeviceName) {
+      micStatus.textContent = `Currently using: ${savedDeviceName}`;
+    }
+
+  } catch (err) {
+    console.error('Error loading audio devices:', err);
+    micSelect.innerHTML = '<option value="">Error loading devices</option>';
+  }
+}
+
+function handleMicChange(event) {
+  const select = event.target;
+  const selectedOption = select.options[select.selectedIndex];
+  const micStatus = document.getElementById('mic-status');
+
+  if (selectedOption && selectedOption.value) {
+    const config = loadConfig();
+    config.audio_device_id = selectedOption.value;
+    config.audio_device_name = selectedOption.textContent;
+    config.audio_device_index = parseInt(selectedOption.dataset.index, 10);
+    saveConfig(config);
+
+    micStatus.textContent = `Saved: ${selectedOption.textContent} (restart vibetotext to apply)`;
+  }
+}
+
 // Tab click handlers
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -209,11 +311,16 @@ document.querySelectorAll('.tab').forEach(tab => {
     // Update current mode
     currentMode = tab.dataset.mode;
 
-    // Handle analytics tab separately
+    // Handle special tabs
     const analyticsPanel = document.getElementById('analytics-panel');
+    const microphonePanel = document.getElementById('microphone-panel');
     const entriesContainer = document.getElementById('entries');
     const commonWordsSection = document.getElementById('common-words-section');
     const emptyState = document.getElementById('empty-state');
+
+    // Hide all special panels first
+    analyticsPanel.style.display = 'none';
+    microphonePanel.style.display = 'none';
 
     if (currentMode === 'analytics') {
       // Show analytics, hide entries
@@ -231,13 +338,24 @@ document.querySelectorAll('.tab').forEach(tab => {
       } else {
         console.error('[Renderer] renderAnalytics function not found!');
       }
+    } else if (currentMode === 'microphone') {
+      // Show microphone panel, hide entries
+      microphonePanel.style.display = 'block';
+      entriesContainer.style.display = 'none';
+      commonWordsSection.style.display = 'none';
+      emptyState.style.display = 'none';
+
+      // Load audio devices
+      loadAudioDevices();
     } else {
-      // Hide analytics, show entries
-      analyticsPanel.style.display = 'none';
+      // Hide special panels, show entries
       render(true);
     }
   });
 });
+
+// Set up mic dropdown change handler
+document.getElementById('mic-select').addEventListener('change', handleMicChange);
 
 // Initial render
 render();
