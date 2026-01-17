@@ -109,15 +109,23 @@ def main():
     )
 
     args = parser.parse_args()
+    print("[DEBUG] Args parsed, no_ui flag:", args.no_ui, flush=True)
 
     # Initialize UI if enabled
     ui = None
     if not args.no_ui:
+        print("[DEBUG] Attempting to load UI module...", flush=True)
         try:
             from vibetotext import ui as ui_module
             ui = ui_module
-        except Exception:
+            print("[DEBUG] UI module loaded successfully", flush=True)
+        except Exception as e:
+            import traceback
+            print(f"[DEBUG] Failed to load UI module: {e}", flush=True)
+            traceback.print_exc()
             pass
+    else:
+        print("[DEBUG] UI disabled via --no-ui flag", flush=True)
 
     # Load config for saved audio device (unless overridden by --device)
     import json
@@ -159,8 +167,10 @@ def main():
     if ui:
         recorder.on_level = ui.update_waveform
 
+    print("[DEBUG] About to preload model...", flush=True)
     # Preload model
     _ = transcriber.model
+    print("[DEBUG] Model loaded, defining callbacks...", flush=True)
 
     def on_start(mode):
         try:
@@ -248,7 +258,9 @@ def main():
                     pass
 
     # Start listening
+    print("[DEBUG] About to start hotkey listener...", flush=True)
     hotkey_listener = listener.start(on_start, on_stop)
+    print("[DEBUG] Hotkey listener started! Ready for input.", flush=True)
 
     # Run main loop (process UI events if enabled)
     try:

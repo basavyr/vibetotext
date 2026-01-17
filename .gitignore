@@ -34,6 +34,7 @@ dist/
 *.output
 launcher.c
 .env
+.fastembed_cache/
 
 # Electron history app
 history-app/node_modules/
