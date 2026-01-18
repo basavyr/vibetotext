@@ -42,6 +42,19 @@ Requires `GEMINI_API_KEY` in `.env` for cleanup/plan modes.
 ## Usage
 
 ```bash
-vibetotext              # Start with default hotkeys
-vibetotext --model base # Use specific Whisper model
+vibetotext                    # Start with saved/default settings
+vibetotext --model base       # Use specific Whisper model
+vibetotext --model small-q8_0 # Use quantized model for better accuracy
+vibetotext --model large-v3   # Use latest large model
+vibetotext --config           # Run interactive configuration wizard
 ```
+
+### Configuration
+
+Run the configuration wizard to set up:
+- Audio device (microphone)
+- Whisper model
+- Hotkey combinations
+- Context search limits
+
+The configuration saves to `~/.vibetotext/config.json` and is used as defaults for all subsequent runs.

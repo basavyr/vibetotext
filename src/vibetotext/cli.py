@@ -26,8 +26,7 @@ def main():
     parser.add_argument(
         "--model",
         default="base",
-        choices=["tiny", "base", "small", "medium", "large"],
-        help="Whisper model size (default: base)",
+        help="Whisper.cpp model name (default: base). Examples: tiny, base, small, medium, large-v3, base.en, small-q8_0, etc.",
     )
     parser.add_argument(
         "--hotkey",
@@ -76,32 +75,55 @@ def main():
         action="store_true",
         help="Disable visual recording indicator",
     )
+    parser.add_argument(
+        "--config",
+        action="store_true",
+        help="Run interactive configuration wizard",
+    )
 
     args = parser.parse_args()
 
+    # Handle config command
+    if args.config:
+        from .configure import main as configure_main
+        configure_main()
+        return
+
+    # Load config for saved settings
+    config_file = Path.home() / ".vibetotext" / "config.json"
+    config = {}
+    try:
+        if config_file.exists():
+            with open(config_file, "r") as f:
+                config = json.load(f)
+    except Exception:
+        pass
+
+    # Use saved values as defaults, allowing CLI args to override
+    saved_device = config.get("audio_device_index")
+    model_name = args.model if args.model != "base" else config.get("whisper_model", "base")
+    hotkey = args.hotkey if args.hotkey != "ctrl+shift" else config.get("hotkey", "ctrl+shift")
+    greppy_hotkey = args.greppy_hotkey if args.greppy_hotkey != "cmd+shift" else config.get("greppy_hotkey", "cmd+shift")
+    cleanup_hotkey = args.cleanup_hotkey if args.cleanup_hotkey != "alt+shift" else config.get("cleanup_hotkey", "alt+shift")
+    plan_hotkey = args.plan_hotkey if args.plan_hotkey != "cmd+alt+p" else config.get("plan_hotkey", "cmd+alt+p")
+    codebase = args.codebase if args.codebase is not None else config.get("codebase")
+    no_context = args.no_context or config.get("no_context", False)
+    context_limit = args.context_limit if args.context_limit != 5 else config.get("context_limit", 5)
+    greppy_limit = args.greppy_limit if args.greppy_limit != 10 else config.get("greppy_limit", 10)
+    no_ui = args.no_ui
+
     # Initialize UI if enabled
     ui = None
-    if not args.no_ui:
+    if not no_ui:
         try:
             from . import ui as ui_module
             ui = ui_module
         except Exception as e:
             print(f"UI disabled: {e}")
 
-    # Load config for saved audio device
-    config_file = Path.home() / ".vibetotext" / "config.json"
-    saved_device = None
-    try:
-        if config_file.exists():
-            with open(config_file, "r") as f:
-                config = json.load(f)
-                saved_device = config.get("audio_device_index")
-    except Exception:
-        pass
-
     # Initialize components
     recorder = AudioRecorder(device=saved_device)
-    transcriber = Transcriber(model_name=args.model)
+    transcriber = Transcriber(model_name=model_name)
     history = TranscriptionHistory()
 
     # Log available audio devices
@@ -125,10 +147,10 @@ def main():
 
     # Set up hotkeys for all modes
     hotkeys = {
-        args.hotkey: "transcribe",
-        args.greppy_hotkey: "greppy",
-        args.cleanup_hotkey: "cleanup",
-        args.plan_hotkey: "plan",
+        hotkey: "transcribe",
+        greppy_hotkey: "greppy",
+        cleanup_hotkey: "cleanup",
+        plan_hotkey: "plan",
     }
     listener = HotkeyListener(hotkeys=hotkeys)
 
@@ -140,10 +162,10 @@ def main():
         recorder.on_level = ui.update_waveform
 
     print(f"vibetotext ready. Hold hotkey to record, release to process.")
-    print(f"  [{args.hotkey}] = transcribe + paste")
-    print(f"  [{args.greppy_hotkey}] = Greppy search + attach files")
-    print(f"  [{args.cleanup_hotkey}] = cleanup/refine with Gemini")
-    print(f"  [{args.plan_hotkey}] = implementation plan with Gemini")
+    print(f"  [{hotkey}] = transcribe + paste")
+    print(f"  [{greppy_hotkey}] = Greppy search + attach files")
+    print(f"  [{cleanup_hotkey}] = cleanup/refine with Gemini")
+    print(f"  [{plan_hotkey}] = implementation plan with Gemini")
     print("Press Ctrl+C to exit.\n")
 
     # Preload model
@@ -207,7 +229,7 @@ def main():
             if mode == "greppy":
                 # Greppy mode: search for relevant files and attach them
                 print("Searching with Greppy...", end="", flush=True)
-                files = search_files(text, limit=args.greppy_limit, codebase=args.codebase)
+                files = search_files(text, limit=greppy_limit, codebase=codebase or "datafeeds")
                 print(f" found {len(files)} files.")
 
                 if files:
@@ -244,9 +266,9 @@ def main():
 
             else:
                 # Regular transcribe mode
-                if not args.no_context:
+                if not no_context:
                     print("Searching for relevant code...", end="", flush=True)
-                    snippets = search_context(text, limit=args.context_limit)
+                    snippets = search_context(text, limit=context_limit)
                     context = format_context(snippets)
                     print(f" found {len(snippets)} snippets.")
                     output = text + context
